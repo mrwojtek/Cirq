@@ -149,7 +149,7 @@ class PhasedFSimCalibrationRequest(abc.ABC):
     pairs: Tuple[Tuple[Qid, Qid], ...]
 
     @property
-    @functools.lru_cache
+    @functools.lru_cache(maxsize=None)
     def qubit_pairs(self) -> MutableMapping[Qid, Tuple[Qid, Qid]]:
         # Returning mutable mapping as a cached result because it's hard to get a frozen dictionary
         # in Python...
