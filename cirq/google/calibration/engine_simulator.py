@@ -32,12 +32,12 @@ from cirq.google.calibration.phased_fsim import (
     IncompatibleMomentError,
     PhasedFSimCalibrationRequest,
     PhasedFSimCalibrationResult,
-    PhasedFSimParameters,
+    PhasedFSimCharacterization,
     sqrt_iswap_gates_translator
 )
 
 
-SQRT_ISWAP_PARAMETERS = PhasedFSimParameters(
+SQRT_ISWAP_PARAMETERS = PhasedFSimCharacterization(
     theta=np.pi / 4,
     zeta=0.0,
     chi=0.0,
@@ -86,10 +86,10 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
 
     @staticmethod
     def create_with_random_gaussian_sqrt_iswap(
-            mean: PhasedFSimParameters,
+            mean: PhasedFSimCharacterization,
             *,
             simulator: Optional[Simulator] = None,
-            sigma: PhasedFSimParameters = PhasedFSimParameters(
+            sigma: PhasedFSimCharacterization = PhasedFSimCharacterization(
                 theta=0.02,
                 zeta=0.05,
                 chi=0.05,
@@ -141,7 +141,7 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
 
     @staticmethod
     def create_from_dictionary_sqrt_iswap(
-            parameters: Dict[Tuple[Qid, Qid], Union[Dict[str, float], PhasedFSimParameters]],
+            parameters: Dict[Tuple[Qid, Qid], Union[Dict[str, float], PhasedFSimCharacterization]],
             *,
             simulator: Optional[Simulator] = None,
             ideal_when_missing_gate: bool = False,
@@ -157,8 +157,8 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
 
             if pair in parameters:
                 pair_parameters = parameters[pair]
-                if not isinstance(pair_parameters, PhasedFSimParameters):
-                    pair_parameters = PhasedFSimParameters(**pair_parameters)
+                if not isinstance(pair_parameters, PhasedFSimCharacterization):
+                    pair_parameters = PhasedFSimCharacterization(**pair_parameters)
 
                 if pair_parameters.any_none():
                     if not ideal_when_missing_parameter:
@@ -187,6 +187,8 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
             gates_translator=sqrt_iswap_gates_translator
         )
 
+    # TODO: Add support for multi-moment simulation, where each moment can define different parameters for a given
+    #  qubits pair.
     @staticmethod
     def create_from_characterizations_sqrt_iswap(
             characterizations: Iterable[PhasedFSimCalibrationResult],
@@ -208,8 +210,6 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
                     a, b = b, a
                     pair_parameters = pair_parameters.for_qubits_swapped()
                 if (a, b) in parameters:
-                    # TODO: Add support for multi-moment simulation, where each moment can define
-                    #  different parameters for a given qubits pair.
                     raise ValueError(f'Pair ({(a, b)}) appears in multiple moments, multi-moment '
                                      f'simulation is not supported.')
                 parameters[(a, b)] = pair_parameters
@@ -249,7 +249,7 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
             parameters = {}
             for a, b in request.pairs:
                 drifted = self._get_or_create_gate(a, b, translated_gate)
-                parameters[a, b] = PhasedFSimParameters(
+                parameters[a, b] = PhasedFSimCharacterization(
                     theta=drifted.theta if characterize_theta else None,
                     zeta=drifted.zeta if characterize_zeta else None,
                     chi=drifted.chi if characterize_chi else None,

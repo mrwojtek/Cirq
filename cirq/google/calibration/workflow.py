@@ -21,7 +21,7 @@ from cirq.google.calibration.phased_fsim import (
     IncompatibleMomentError,
     PhasedFSimCalibrationRequest,
     PhasedFSimCalibrationResult,
-    PhasedFSimParameters,
+    PhasedFSimCharacterization,
     sqrt_iswap_gates_translator
 )
 from cirq.google.engine import Engine
@@ -83,6 +83,9 @@ def floquet_characterization_for_moment(
     )
 
 
+# TODO: Add support for ISWAP ** 0.5 as well.
+# TODO: Add support for WaitGates
+# TODO: Add support for CircuitOperations.
 def floquet_characterization_for_circuit(
         circuit: Circuit,
         gate_set: SerializableGateSet,
@@ -226,7 +229,7 @@ def phased_calibration_for_circuit(
         moments_mapping: List[Optional[int]],
         gates_translator: Callable[[Gate], Optional[FSimGate]] = sqrt_iswap_gates_translator
 ) -> Tuple[Circuit, List[Optional[int]]]:
-    default_phases = PhasedFSimParameters(
+    default_phases = PhasedFSimCharacterization(
         zeta=0.0,
         chi=0.0,
         gamma=0.0
@@ -286,7 +289,7 @@ def phased_calibration_for_circuit(
 def create_corrected_fsim_gate(
         qubits: Tuple[Qid, Qid],
         gate: FSimGate,
-        parameters: PhasedFSimParameters,
+        parameters: PhasedFSimCharacterization,
         characterization_index
 ) -> Tuple[Tuple[Tuple[Operation, ...], ...], List[Optional[int]]]:
     zeta = parameters.zeta
@@ -353,7 +356,7 @@ def run_floquet_phased_calibration_for_circuit(
         merge_sub_sets: bool = True,
         max_layers_per_request: int = 1,
         progress_func: Optional[Callable[[int, int], None]] = None
-) -> Tuple[Circuit, List[PhasedFSimCalibrationResult], List[Optional[int]], PhasedFSimParameters]:
+) -> Tuple[Circuit, List[PhasedFSimCalibrationResult], List[Optional[int]], PhasedFSimCharacterization]:
     requests, mapping = floquet_characterization_for_circuit(
         circuit, gate_set, gates_translator, options, merge_sub_sets=merge_sub_sets)
     characterizations = run_characterizations(
@@ -370,7 +373,7 @@ def run_floquet_phased_calibration_for_circuit(
         mapping,
         gates_translator
     )
-    override = PhasedFSimParameters(
+    override = PhasedFSimCharacterization(
         zeta=0.0 if options.characterize_zeta else None,
         chi=0.0 if options.characterize_chi else None,
         gamma=0.0 if options.characterize_gamma else None
