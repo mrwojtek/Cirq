@@ -21,6 +21,7 @@ from cirq.sim import (
     SimulatesSamples,
     SimulatesIntermediateStateVector,
     SparseSimulatorStep,
+    StepResult,
 )
 from cirq.study import ParamResolver
 
@@ -45,7 +46,9 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
         simulator: Simulator,
         *,
         drift_generator: Callable[[Qid, Qid, FSimGate], PhasedFSimGate],
-        gates_translator: Callable[[Gate], Optional[FSimGate]] = sqrt_iswap_gates_translator,
+        gates_translator: Callable[
+            [Gate], Optional[Tuple[FSimGate, float]]
+        ] = sqrt_iswap_gates_translator,
     ) -> None:
         self._simulator = simulator
         self._drift_generator = drift_generator
@@ -215,15 +218,16 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
         results = []
         for request in requests:
             if isinstance(request, FloquetPhasedFSimCalibrationRequest):
-                characterize_theta = request.options.characterize_theta
-                characterize_zeta = request.options.characterize_zeta
-                characterize_chi = request.options.characterize_chi
-                characterize_gamma = request.options.characterize_gamma
-                characterize_phi = request.options.characterize_phi
+                options = request.options
+                characterize_theta = options.characterize_theta
+                characterize_zeta = options.characterize_zeta
+                characterize_chi = options.characterize_chi
+                characterize_gamma = options.characterize_gamma
+                characterize_phi = options.characterize_phi
             else:
                 raise ValueError(f'Unsupported calibration request {request}')
 
-            translated_gate = self._gates_translator(request.gate)
+            translated_gate, _ = self._gates_translator(request.gate)
             if translated_gate is None:
                 raise ValueError(f'Calibration request contains unsupported gate {request.gate}')
 
@@ -238,7 +242,11 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
                     phi=drifted.phi if characterize_phi else None,
                 )
 
-            results.append(PhasedFSimCalibrationResult(parameters=parameters, gate=request.gate))
+            results.append(
+                PhasedFSimCalibrationResult(
+                    parameters=parameters, gate=request.gate, options=options
+                )
+            )
 
         return results
 
@@ -253,7 +261,7 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
         circuit: Circuit,
         qubit_order: QubitOrderOrList,
         initial_state: Any,
-    ) -> Iterator['StepResult']:
+    ) -> Iterator[StepResult]:
         converted = self._convert_to_circuit_with_drift(circuit)
         return self._simulator._base_iterator(converted, qubit_order, initial_state)
 
@@ -289,11 +297,14 @@ class PhasedFSimEngineSimulator(SimulatesSamples, SimulatesIntermediateStateVect
             if isinstance(op.gate, (MeasurementGate, SingleQubitGate, WaitGate)):
                 new_op = op
             else:
-                translated_gate = self._outer._gates_translator(op.gate)
+                translated_gate, translate_phase_exponent = self._outer._gates_translator(op.gate)
                 if translated_gate is None:
                     raise IncompatibleMomentError(
                         f'Moment contains non-single qubit operation ' f'{op} with unsupported gate'
                     )
+                # TODO: Introduce phase corrections by adjusting chi.
+                if not np.isclose(translate_phase_exponent, 0.0):
+                    raise RuntimeError('Gates with phase exponents not yet supported')
                 a, b = op.qubits
                 new_op = self._outer._get_or_create_gate(a, b, translated_gate).on(a, b)
 
