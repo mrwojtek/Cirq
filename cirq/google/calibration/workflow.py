@@ -16,8 +16,6 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 import dataclasses
 from itertools import zip_longest
 
-import numpy as np
-
 from cirq.circuits import Circuit
 from cirq.ops import (
     FSimGate,
@@ -29,7 +27,6 @@ from cirq.ops import (
     Qid,
     SingleQubitGate,
     WaitGate,
-    rz,
 )
 from cirq.google.calibration.engine_simulator import PhasedFSimEngineSimulator
 from cirq.google.calibration.phased_fsim import (
@@ -65,7 +62,7 @@ class CircuitWithCalibration:
     moment_to_calibration: List[Optional[int]]
 
 
-def make_floquet_request_for_moment(
+def prepare_floquet_characterization_for_moment(
     moment: Moment,
     options: FloquetPhasedFSimCalibrationOptions,
     gates_translator: Callable[
@@ -140,7 +137,7 @@ def make_floquet_request_for_moment(
     )
 
 
-def make_floquet_request_for_circuit(
+def prepare_floquet_characterization_for_circuit(
     circuit: Circuit,
     options: FloquetPhasedFSimCalibrationOptions = WITHOUT_CHI_FLOQUET_PHASED_FSIM_CHARACTERIZATION,
     gates_translator: Callable[
@@ -189,7 +186,7 @@ def make_floquet_request_for_circuit(
         pairs_map = {calibration.pairs: index for index, calibration in enumerate(calibrations)}
 
     for moment in circuit:
-        calibration = make_floquet_request_for_moment(
+        calibration = prepare_floquet_characterization_for_moment(
             moment, options, gates_translator, canonicalize_pairs=True, sort_pairs=True
         )
 
@@ -290,7 +287,7 @@ def _merge_into_calibrations(
     return index
 
 
-def run_characterizations(
+def run_calibrations(
     calibrations: Sequence[PhasedFSimCalibrationRequest],
     engine: Union[Engine, PhasedFSimEngineSimulator],
     processor_id: Optional[str] = None,
@@ -361,7 +358,7 @@ def run_characterizations(
     return results
 
 
-def zeta_chi_gamma_calibration_for_moments(
+def make_zeta_chi_gamma_compensation_for_moments(
     circuit_with_calibration: CircuitWithCalibration,
     characterizations: List[PhasedFSimCalibrationResult],
     gates_translator: Callable[
@@ -495,26 +492,7 @@ class FSimPhaseCorrections:
             parameters: The real parameters of the supplied gate.
             characterization_index: characterization index to use at each moment with gate.
         """
-        assert parameters.zeta is not None, "Zeta value must not be None"
-        zeta = parameters.zeta
-
-        assert parameters.gamma is not None, "Gamma value must not be None"
-        gamma = parameters.gamma
-
-        assert parameters.chi is not None, "Chi value must not be None"
-        chi = parameters.chi - 2 * np.pi * gate_calibration.phase_exponent
-
-        a, b = qubits
-
-        alpha = 0.5 * (zeta + chi)
-        beta = 0.5 * (zeta - chi)
-
-        operations = (
-            (rz(0.5 * gamma - alpha).on(a), rz(0.5 * gamma + alpha).on(b)),
-            (gate_calibration.engine_gate.on(a, b),),
-            (rz(0.5 * gamma - beta).on(a), rz(0.5 * gamma + beta).on(b)),
-        )
-
+        operations = gate_calibration.with_zeta_chi_gamma_compensated(qubits, parameters)
         moment_to_calibration = [None, characterization_index, None]
 
         return cls(operations, moment_to_calibration)
@@ -572,10 +550,10 @@ def run_floquet_characterization_for_circuit(
         IncompatibleMomentError when circuit contains a moment with operations other than the
         operations matched by gates_translator, or it mixes a single qubit and two qubit gates.
     """
-    circuit_calibration, requests = make_floquet_request_for_circuit(
+    circuit_calibration, requests = prepare_floquet_characterization_for_circuit(
         circuit, options, gates_translator, merge_subsets=merge_subsets
     )
-    results = run_characterizations(
+    results = run_calibrations(
         requests,
         engine,
         processor_id,
@@ -586,7 +564,7 @@ def run_floquet_characterization_for_circuit(
     return circuit_calibration, results
 
 
-def run_zeta_chi_gamma_calibration_for_moments(
+def run_zeta_chi_gamma_compensation_for_moments(
     circuit: Circuit,
     engine: Union[Engine, PhasedFSimEngineSimulator],
     processor_id: Optional[str] = None,
@@ -634,10 +612,10 @@ def run_zeta_chi_gamma_calibration_for_moments(
             calibrations could be applied.
           - List of characterizations results that were obtained in order to calibrate the circuit.
     """
-    circuit_with_calibration, requests = make_floquet_request_for_circuit(
+    circuit_with_calibration, requests = prepare_floquet_characterization_for_circuit(
         circuit, options, gates_translator, merge_subsets=merge_subsets
     )
-    characterizations = run_characterizations(
+    characterizations = run_calibrations(
         calibrations=requests,
         engine=engine,
         processor_id=processor_id,
@@ -645,7 +623,7 @@ def run_zeta_chi_gamma_calibration_for_moments(
         max_layers_per_request=max_layers_per_request,
         progress_func=progress_func,
     )
-    calibrated_circuit = zeta_chi_gamma_calibration_for_moments(
+    calibrated_circuit = make_zeta_chi_gamma_compensation_for_moments(
         circuit_with_calibration, characterizations, gates_translator
     )
     return calibrated_circuit, characterizations
